@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { trustLineItem, buildPlan, toBatches, giftTx, lsf, tf, MAX_BATCH } from '../src/plan.js';
+import { trustLineItem, buildPlan, toBatches, toSingles, giftTx, lsf, tf, MAX_BATCH } from '../src/plan.js';
 
 const ME = 'rMEMEMEMEMEMEMEMEMEMEMEMEMEMEMEMEMe';
 const ISS = 'rISSUERISSUERISSUERISSUERISSUERxx';
@@ -159,4 +159,63 @@ test('buildPlan refuses when the servers did not agree', () => {
   assert.throws(() => buildPlan(scan), /did not agree/);
   assert.throws(() => buildPlan({ ...scan, agree: undefined }), /did not agree/);
   assert.doesNotThrow(() => buildPlan(scan, { force: true }));
+});
+
+test('toBatches batch:false: one plain tx per action, consecutive sequences, no inner flag', () => {
+  const txs = Array.from({ length: 10 }, (_, k) => ({ TransactionType: 'OfferCancel', Account: ME, OfferSequence: k + 1 }));
+  const out = toBatches(ME, txs, { sequence: 50, baseFeeDrops: 12, batch: false });
+  assert.equal(out.length, 10);
+  out.forEach((t, k) => {
+    assert.equal(t.TransactionType, 'OfferCancel');
+    assert.equal(t.Sequence, 50 + k);
+    assert.equal(t.Fee, '12');
+    assert.equal((t.Flags || 0) & tf.InnerBatchTxn, 0);
+  });
+});
+
+test('toBatches batch:false with gift: gift goes last as its own Payment', () => {
+  const txs = [{ TransactionType: 'OfferCancel', Account: ME, OfferSequence: 1 }];
+  const out = toBatches(ME, txs, { sequence: 5, gift: giftTx(ME, { destination: GIFT_TO, drops: 200000 }), batch: false });
+  assert.equal(out.length, 2);
+  assert.equal(out[1].TransactionType, 'Payment');
+  assert.equal(out[1].Sequence, 6);
+  assert.ok(!out.some((t) => t.TransactionType === 'Batch'));
+});
+
+test('toSingles is exported and keeps the order', () => {
+  const out = toSingles(ME, [{ TransactionType: 'CheckCancel', Account: ME }, { TransactionType: 'OfferCancel', Account: ME }], { sequence: 1 });
+  assert.deepEqual(out.map((t) => t.TransactionType), ['CheckCancel', 'OfferCancel']);
+});
+
+test('tickets: optional cleanup item, no-op AccountSet that uses the ticket', () => {
+  const scan = { agree: true, account: ME, accountData: { Flags: 0, Sequence: 30 }, objects: [{ LedgerEntryType: 'Ticket', index: 'T1', TicketSequence: 12 }], signerLists: [], reserveInc: 200000 };
+  const plan = buildPlan(scan);
+  const it = plan.items.find((i) => i.kind === 'ticket');
+  assert.equal(it.reclaimable, true);
+  assert.equal(it.optional, true);
+  assert.deepEqual(it.tx, { TransactionType: 'AccountSet', Account: ME, Sequence: 0, TicketSequence: 12 });
+  assert.equal(plan.optionalCleanup.length, 1);
+});
+
+test('tickets in a Batch: inner ticket tx has Sequence 0 and does not use up a sequence number', () => {
+  const txs = [
+    { TransactionType: 'OfferCancel', Account: ME, OfferSequence: 1 },
+    { TransactionType: 'AccountSet', Account: ME, Sequence: 0, TicketSequence: 7 },
+    { TransactionType: 'OfferCancel', Account: ME, OfferSequence: 2 },
+  ];
+  const [b] = toBatches(ME, txs, { sequence: 100 });
+  assert.equal(b.Sequence, 100);
+  assert.deepEqual(b.RawTransactions.map((r) => r.RawTransaction.Sequence), [101, 0, 102]);
+  assert.equal(b.RawTransactions[1].RawTransaction.TicketSequence, 7);
+});
+
+test('tickets as singles: Sequence 0 for the ticket tx, the others stay consecutive', () => {
+  const txs = [
+    { TransactionType: 'AccountSet', Account: ME, Sequence: 0, TicketSequence: 7 },
+    { TransactionType: 'OfferCancel', Account: ME, OfferSequence: 2 },
+  ];
+  const out = toSingles(ME, txs, { sequence: 9 });
+  assert.deepEqual(out.map((t) => t.Sequence), [0, 9]);
+  const one = toBatches(ME, [txs[0]], { sequence: 9 });
+  assert.equal(one[0].Sequence, 0);
 });

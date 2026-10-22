@@ -83,7 +83,9 @@ export function buildPlan(scan, { force = false } = {}) {
         }
         break;
       case 'Ticket':
-        items.push({ kind: 'ticket', id: o.index, reclaimable: false, why: 'unused ticket: freed only by using it (a no-op AccountSet with TicketSequence)' });
+        // A ticket is freed only by using it (Transactor ticketDelete -> owner count -1). The cleanup
+        // uses it on a no-op AccountSet. Optional: a transaction you already pre-signed may rely on it.
+        items.push({ kind: 'ticket', id: o.index, reclaimable: true, optional: true, why: `unused ticket #${o.TicketSequence}: using it frees its reserve (skip if something you pre-signed uses it)`, tx: { TransactionType: 'AccountSet', Account: account, Sequence: 0, TicketSequence: o.TicketSequence } });
         break;
       case 'SignerList':
         break; // reported from signer_lists below
@@ -123,22 +125,30 @@ export function buildPlan(scan, { force = false } = {}) {
 // consecutive Sequence after the outer (Batch.cpp preflight). A single tx is returned as-is.
 // With `gift` (from giftTx), the gift Payment goes last, in a final tfAllOrNothing Batch with up to
 // 7 cleanup actions: if any of those fails, the gift is not sent either.
-export function toBatches(account, txs, { sequence, baseFeeDrops = 10, gift } = {}) {
+// With `batch: false`, every action is its own plain transaction (Sequence and Fee set, in order),
+// for wallets that cannot sign Batch yet. A gift then goes last as its own Payment, so it is NOT
+// all-or-nothing with the cleanup: it is sent even if a cleanup action fails.
+export function toBatches(account, txs, { sequence, baseFeeDrops = 10, gift, batch = true } = {}) {
+  if (!batch) return toSingles(account, gift ? [...txs, gift] : txs, { sequence, baseFeeDrops });
   const out = [];
   let seq = sequence;
   const push = (group, flags) => {
     if (group.length === 1) {
-      out.push({ ...group[0], Sequence: seq, Fee: String(baseFeeDrops) });
-      seq += 1;
+      const [one] = toSingles(account, group, { sequence: seq, baseFeeDrops });
+      out.push(one);
+      if (!usesTicket(one)) seq += 1;
       return;
     }
     const outerSeq = seq;
-    const inner = group.map((t, k) => ({
-      RawTransaction: { ...t, Flags: (t.Flags || 0) | tf.InnerBatchTxn, Fee: '0', SigningPubKey: '', Sequence: outerSeq + 1 + k },
+    let next = outerSeq + 1;
+    // An inner tx that uses a ticket has Sequence 0 and does not take a sequence number
+    // (Batch.cpp preflight: exactly one of Sequence / TicketSequence).
+    const inner = group.map((t) => ({
+      RawTransaction: { ...t, Flags: (t.Flags || 0) | tf.InnerBatchTxn, Fee: '0', SigningPubKey: '', Sequence: usesTicket(t) ? 0 : next++ },
     }));
     // Batch fee = base (batch) + outer base fee + each inner base fee (Batch.cpp calculateBaseFeeImpl)
     out.push({ TransactionType: 'Batch', Account: account, Flags: flags, Sequence: outerSeq, Fee: String(baseFeeDrops * (2 + group.length)), RawTransactions: inner });
-    seq = outerSeq + 1 + group.length;
+    seq = next;
   };
   const tail = gift ? txs.slice(Math.max(0, txs.length - (MAX_BATCH - 1))) : [];
   const head = gift ? txs.slice(0, txs.length - tail.length) : txs;
@@ -146,6 +156,16 @@ export function toBatches(account, txs, { sequence, baseFeeDrops = 10, gift } = 
   if (gift) push([...tail, gift], tf.AllOrNothing);
   return out;
 }
+
+// One plain transaction per action, consecutive Sequence numbers, base fee each. Works in any
+// wallet that can sign the single transaction types (TrustSet, OfferCancel, NFTokenCancelOffer, CheckCancel, ...).
+export function toSingles(account, txs, { sequence, baseFeeDrops = 10 } = {}) {
+  let seq = sequence;
+  return txs.map((t) => ({ ...t, Account: account, Sequence: usesTicket(t) ? 0 : seq++, Fee: String(baseFeeDrops) }));
+}
+
+// A tx that consumes a ticket carries TicketSequence and Sequence 0.
+export const usesTicket = (t) => t.TicketSequence != null;
 
 // "Clean up and give": a plain XRP Payment of `drops` to `destination`, sent with the cleanup.
 // The amount is whatever the owner chooses (often the reserve the cleanup frees).

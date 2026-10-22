@@ -17,6 +17,7 @@ node bin/checkup.js <rAccount> --json      # plan + unsigned transactions
 node bin/checkup.js <rAccount> --simulate  # also dry-run each cleanup action (rippled `simulate`)
 npm test                                   # unit tests
 node test/testnet/e2e-batch.mjs            # TESTNET end-to-end with throwaway accounts (npm i --no-save xrpl, or XRPLJS=<path>)
+node bin/checkup.js <rAccount> --json --no-batch  # one plain transaction per action (wallets without Batch signing)
 ```
 
 ## Ledger census
@@ -60,13 +61,15 @@ With `gift`, the Payment goes last in a `tfAllOrNothing` Batch (`TxFlags.h:202`)
 | Live checks you created | `CheckCancel` | optional: it withdraws a payment you promised |
 | Open (live) DEX offer | `OfferCancel` | optional: it is your trade |
 | Delegate you granted | `DelegateSet` with empty `Permissions` (deletes it) | optional |
-| Tickets, escrows, channels, NFT pages, signer list, other | reported only | — |
+| Unused ticket | no-op `AccountSet` that uses it (`TicketSequence`, `Sequence` 0); works inside a Batch | optional: skip if a transaction you pre-signed uses that ticket |
+| Escrows, channels, NFT pages, signer list, other | reported only | — |
 
 Each removed object returns the owner reserve (0.2 XRP, read from `server_state` at scan time).
 
 ## Rules (from rippled source, 3.4 line)
 
 - Trust line: your side stops reserving when your limit is 0, you hold nothing, no quality, not frozen, and NoRipple equals NOT DefaultRipple (`TrustSet.cpp:501-514`). Deep-frozen lines are left for manual handling.
+- Ticket: using a ticket deletes it and lowers the owner count by one (`Transactor.cpp` `ticketDelete`, `decreaseOwnerCountForObject`, rippled develop 2026-10-22). A Batch inner tx has exactly one of Sequence / TicketSequence (`Batch.cpp` preflight).
 - Batch: 2–8 inner transactions (`Protocol.h:454`), exactly one mode flag (we use `tfIndependent`), inner txs carry `tfInnerBatchTxn` (`0x40000000`), fee 0, empty `SigningPubKey`, consecutive `Sequence` after the outer (`Batch.cpp` preflight); outer fee = base + outer base + each inner base (`Batch.cpp` calculateBaseFeeImpl).
 - NFT offer cancel: up to 500 ids (`Protocol.h:79`). Delegate: empty `Permissions` deletes the entry (`DelegateSet.cpp:86-89`).
 - `simulate` rejects Batch (`Simulate.cpp:361`), so `--simulate` dry-runs each action on its own.
@@ -80,8 +83,10 @@ Each removed object returns the owner reserve (0.2 XRP, read from `server_state`
 
 ## Evidence
 
-- Unit tests: 16/16 (`npm test`).
+- Unit tests: 22/22 (`npm test`).
 - Testnet end-to-end 2026-10-21: 2 trust lines + 1 expired offer created on a throwaway account; checkup found all 3 (servers agree); one signed Batch `tesSUCCESS` (validated); owner count 3 → 0, 0.6 XRP reserve freed.
+- Testnet 2026-10-22 (`test/testnet/e2e-tickets.mjs`): unused tickets. Account A (3 tickets + 1 empty line) cleaned in one Batch whose ticket inner txs use TicketSequence with Sequence 0: owner count 4 → 0. Account B (2 tickets) cleaned as single transactions: 2 → 0.
+- Testnet 2026-10-22 (`test/testnet/e2e-singles.mjs`): the no-Batch path (`--no-batch` / `batch: false`): OfferCancel + 2 TrustSet signed one by one in Sequence order, all applied; owner count 3 → 0, 0.6 XRP freed.
 - Testnet 2026-10-22 (`test/testnet/e2e-noripple.mjs`): a limit-0, 0-balance line whose NoRipple does not match DefaultRipple keeps its reserve (OwnerCount stays 1); the TrustSet this tool builds (matching NoRipple) frees it (OwnerCount 0).
 - Testnet 2026-10-22 (`test/testnet/e2e-blackholed-issuer.mjs`): issuer side not default (issuer set a limit) and issuer blackholed; the holder's TrustSet still frees the holder's reserve (OwnerCount 1 -> 0) while the line stays (issuer OwnerCount unchanged).
 - Mainnet read-only: KVT attester `rBJW51…X4L` (0 objects, master key only); sample active accounts: per-action `simulate` → `tesSUCCESS`.
@@ -90,4 +95,4 @@ Each removed object returns the owner reserve (0.2 XRP, read from `server_state`
 
 - xApp packaging and hosting (the web page works locally).
 - Xaman signing of Batch: WietseWind/Xaman-App PR #291 ("Batch signing for BatchV1_1 and the Batch Account signature") was still open on 2026-10-22. Its description says a Batch Account that owns 2 or more inner transactions was mishandled, which is this tool's cleanup shape, so test in Xaman after it ships.
-- Tickets (freed only by use), unfunded-offer detection, AMM LP positions.
+- Unfunded-offer detection, AMM LP positions.

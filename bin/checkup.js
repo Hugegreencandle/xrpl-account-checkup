@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// xrpl-checkup <rAccount> [--json] [--simulate]
+// xrpl-checkup <rAccount> [--json] [--simulate] [--no-batch]
 // Read-only. Builds UNSIGNED transactions; never asks for a key, never submits.
 
 import { scanAccount } from '../src/scan.js';
@@ -12,7 +12,7 @@ const fmt = (x) => (Math.round(x * 1e6) / 1e6).toString();
 async function main() {
   const [account, ...flags] = process.argv.slice(2);
   if (!account || !/^r[1-9A-HJ-NP-Za-km-z]{24,34}$/.test(account)) {
-    console.error('usage: xrpl-checkup <rAccount> [--json] [--simulate]');
+    console.error('usage: xrpl-checkup <rAccount> [--json] [--simulate] [--no-batch]');
     process.exit(1);
   }
   const scan = await scanAccount(account);
@@ -21,7 +21,8 @@ async function main() {
     process.exit(2);
   }
   const plan = buildPlan(scan);
-  const txs = toBatches(account, plan.cleanup, { sequence: scan.accountData.Sequence, baseFeeDrops: Number(scan.baseFee || 10) });
+  // --no-batch: one plain transaction per action, for wallets that cannot sign Batch yet.
+  const txs = toBatches(account, plan.cleanup, { sequence: scan.accountData.Sequence, baseFeeDrops: Number(scan.baseFee || 10), batch: !flags.includes('--no-batch') });
 
   // Dry run. rippled's simulate rejects Batch (Simulate.cpp:361), so each cleanup action is
   // simulated on its own with server autofill. This checks every action; it does not prove the

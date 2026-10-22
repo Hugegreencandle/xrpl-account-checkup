@@ -45,7 +45,7 @@ function render() {
   for (const it of plan.items) if (!it.reclaimable && it.kind !== 'trustline') (kept[it.kind] ||= { n: 0, why: it.why }).n++;
   for (const [kind, { n, why }] of Object.entries(kept)) {
     const li = document.createElement('li'); li.className = 'off';
-    li.innerHTML = `<span></span><span class="what"><span class="tag">${escapeHtml(LABEL[kind] || kind)} × ${n}</span><div class="why">${escapeHtml(kind === 'ticket' ? 'Unused tickets: freed only by using them' : why)}</div></span><span></span>`;
+    li.innerHTML = `<span></span><span class="what"><span class="tag">${escapeHtml(LABEL[kind] || kind)} × ${n}</span><div class="why">${escapeHtml(why)}</div></span><span></span>`;
     list.appendChild(li);
   }
   const chosen = plan.items.filter((it, i) => $('it' + i)?.checked);
@@ -64,10 +64,11 @@ function render() {
   }
   if (!plan.risks.length) who.innerHTML = '<li>Nobody: the master key is disabled and no other key is set.</li>';
 
-  const txs = toBatches(scan.account, chosen.map((it) => it.tx), { sequence: scan.accountData.Sequence, baseFeeDrops: Number(scan.baseFee || 10) });
+  const useBatch = !$('nobatch').checked;
+  const txs = toBatches(scan.account, chosen.map((it) => it.tx), { sequence: scan.accountData.Sequence, baseFeeDrops: Number(scan.baseFee || 10), batch: useBatch });
   state.txs = txs;
   const nb = txs.filter((t) => t.TransactionType === 'Batch').length;
-  $('txnote').textContent = txs.length ? `${chosen.length} action${chosen.length > 1 ? 's' : ''} in ${txs.length} unsigned transaction${txs.length > 1 ? 's' : ''} (${nb} Batch${nb === 1 ? '' : 'es'}, up to 8 actions each). Sequence starts at ${scan.accountData.Sequence}; sign them in this order.` : 'Nothing selected.';
+  $('txnote').textContent = txs.length ? `${chosen.length} action${chosen.length > 1 ? 's' : ''} in ${txs.length} unsigned transaction${txs.length > 1 ? 's' : ''}${useBatch ? ` (${nb} Batch${nb === 1 ? '' : 'es'}, up to 8 actions each)` : ' (one per action, no Batch)'}. Sequence starts at ${scan.accountData.Sequence}; sign them in this order.` : 'Nothing selected.';
   $('txs').textContent = txs.length ? JSON.stringify(txs, null, 2) : '';
   $('copy').disabled = !txs.length;
 }
@@ -88,6 +89,7 @@ async function run(account) {
 }
 
 $('f').addEventListener('submit', (e) => { e.preventDefault(); const a = $('acct').value.trim(); if (!ADDR.test(a)) { $('status').className = 'status bad'; $('status').textContent = 'That does not look like an XRPL address (it starts with r).'; return; } run(a); });
+$('nobatch').addEventListener('change', () => { if (state) render(); });
 $('ex').addEventListener('click', () => { $('acct').value = 'rBJW51DoReTh2wpikTADVFNyAyjTQeyX4L'; run($('acct').value); });
 $('copy').addEventListener('click', async () => {
   const text = JSON.stringify(state.txs, null, 2);

@@ -79,9 +79,10 @@ pre{margin:0;max-height:320px;overflow:auto;font:12px/1.45 var(--mono);backgroun
 
     <h2>Cleanup transactions</h2>
     <p class="fine" id="txnote"></p>
+    <label class="fine"><input type="checkbox" id="nobatch"> One transaction per action (for wallets that cannot sign Batch yet)</label>
     <div class="row"><button class="ghost" type="button" id="copy">Copy unsigned transactions</button><span class="fine" id="copied"></span></div>
     <pre id="txs"></pre>
-    <p class="fine">These are unsigned. To use them you sign in your own wallet. Batch signing is new; check your wallet supports it, or send the actions one by one.</p>
+    <p class="fine">These are unsigned. To use them you sign in your own wallet. Batch signing is new; if your wallet cannot sign it, tick "One transaction per action".</p>
   </section>
 
   <p class="fine">Reads two public servers (xrplcluster.com and s2.ripple.com) at the same validated ledger and only shows a plan when both agree. Rules follow the rippled source. Kairo Vault Technologies G.K. · independent verification.</p>
