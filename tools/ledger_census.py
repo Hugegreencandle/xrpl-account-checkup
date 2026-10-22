@@ -68,7 +68,8 @@ def main():
         # reserves AT the pinned ledger (FeeSettings object), not today's server_state
         fee = rpc('ledger_entry', {'index': '4BC50C9B0D8515D3EAAE1E74B29A95804346C491EE1A95BF25E4AAB854A6A651', 'ledger_index': L})['node']
         st = {'ledger': L, 'close_time': hdr['close_time'], 'ledger_hash': hdr['ledger_hash'],
-              'reserve_inc_drops': int(fee['ReserveIncrementDrops']), 'reserve_base_drops': int(fee['ReserveBaseDrops']),
+              'reserve_inc_drops': int(fee.get('ReserveIncrementDrops', fee.get('ReserveIncrement'))),  # pre-XRPFees ledgers use the old field names
+              'reserve_base_drops': int(fee.get('ReserveBaseDrops', fee.get('ReserveBase'))),
               'type_i': 0, 'marker': (f'{lo - 1:064X}' if lo else None), 'shard': shard, 'pages': 0, 'started': time.time(),
               'c': {'lines': 0, 'line_sides_reserved': 0, 'line_sides_reclaimable': 0, 'lines_zero_balance': 0,
                     'offers': 0, 'offers_expired': 0, 'nft_offers': 0, 'nft_offers_expired': 0, 'checks': 0, 'checks_expired': 0}}
