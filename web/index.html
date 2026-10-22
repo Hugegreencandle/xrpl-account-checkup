@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>XRPL Account Checkup</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one column. Address bar, then the answer (XRP you get back) as the hero, then the checklist of items, then who can act, then the unsigned transactions. */
+:root{
+  --paper:#f6f2e8; --panel:#fbf8f1; --ink:#1b2735; --ink2:#4a5566; --line:#d6ccb6;
+  --vault:#0e7c66; --vault-soft:#d6ece5; --brass:#9a7a45; --warn:#a55a1f; --stop:#b4472f;
+  --display:"Fraunces",Georgia,serif; --body:"IBM Plex Sans",-apple-system,"Segoe UI",sans-serif; --mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
+  color-scheme:light;
+}
+@media (prefers-color-scheme: dark){:root{--paper:#11171e;--panel:#18202a;--ink:#ece5d6;--ink2:#b7af9f;--line:#334050;--vault:#3fb497;--vault-soft:#173a33;--brass:#cfa868;--warn:#e0a060;--stop:#e07a5f;color-scheme:dark}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);font:15px/1.55 var(--body)}
+.wrap{max-width:760px;margin:0 auto;padding:28px max(16px,env(safe-area-inset-left,0px)) 48px max(16px,env(safe-area-inset-right,0px));display:grid;gap:18px}
+.eyebrow{font:500 12px/1 var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--brass)}
+h1{font:700 clamp(26px,5vw,36px)/1.1 var(--display);margin:6px 0 4px;text-wrap:balance}
+.lede{color:var(--ink2);margin:0;max-width:60ch}
+form{display:flex;gap:8px;flex-wrap:wrap}
+input{flex:1 1 280px;min-width:0;font:15px var(--mono);padding:12px 14px;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--ink)}
+button{font:600 15px var(--body);padding:12px 18px;border-radius:8px;border:1px solid var(--vault);background:var(--vault);color:var(--panel);cursor:pointer}
+button.ghost{background:transparent;color:var(--vault)}
+button:disabled{opacity:.5;cursor:default}
+button:focus-visible,input:focus-visible{outline:3px solid var(--vault);outline-offset:2px}
+.hint{font-size:13px;color:var(--ink2)} .hint button{font-size:13px;padding:2px 6px;border:0;background:none;color:var(--vault);text-decoration:underline}
+.status{font:13px/1.4 var(--mono);color:var(--ink2)}
+.status.bad{color:var(--stop)}
+.hero{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:20px 22px;display:grid;gap:4px}
+.hero .big{font:700 clamp(38px,9vw,56px)/1 var(--display);color:var(--vault);font-variant-numeric:tabular-nums}
+.hero .sub{color:var(--ink2)}
+h2{font:600 18px/1.2 var(--display);margin:6px 0 0}
+ul.items{list-style:none;margin:0;padding:0;display:grid;gap:6px}
+ul.items li{display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:start;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:var(--panel)}
+ul.items li.off{opacity:.65}
+ul.items .what{min-width:0;overflow-wrap:anywhere}
+ul.items .why{font-size:13px;color:var(--ink2)}
+ul.items .amt{font:500 13px var(--mono);color:var(--vault);white-space:nowrap}
+.tag{font:500 11px var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--brass)}
+ul.who{margin:0;padding-left:18px}
+pre{margin:0;max-height:320px;overflow:auto;font:12px/1.45 var(--mono);background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:12px}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.fine{font-size:12.5px;color:var(--ink2)}
+[hidden]{display:none!important}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div>
+    <div class="eyebrow">Kairo Vault · XRP Ledger</div>
+    <h1>Find your locked XRP</h1>
+    <p class="lede">Every trust line, offer and NFT offer on your account holds back 0.2 XRP. Paste an address to see what you can get back and who can act for the account. Read-only: no key, nothing is signed or sent.</p>
+  </div>
+
+  <form id="f">
+    <label for="acct" class="hint" style="flex-basis:100%">XRPL account address</label>
+    <input id="acct" name="acct" placeholder="r…" autocomplete="off" spellcheck="false">
+    <button id="go" type="submit">Check account</button>
+  </form>
+  <div class="hint">Try an example: <button type="button" id="ex">KVT's attestation account</button></div>
+  <div class="status" id="status" aria-live="polite"></div>
+
+  <section id="out" hidden>
+    <div class="hero">
+      <div class="tag">You can get back</div>
+      <div class="big" id="big">0 XRP</div>
+      <div class="sub" id="sub"></div>
+    </div>
+
+    <h2>What's on the account</h2>
+    <ul class="items" id="items"></ul>
+
+    <h2>Who can act for this account</h2>
+    <ul class="who" id="who"></ul>
+
+    <h2>Cleanup transactions</h2>
+    <p class="fine" id="txnote"></p>
+    <div class="row"><button class="ghost" type="button" id="copy">Copy unsigned transactions</button><span class="fine" id="copied"></span></div>
+    <pre id="txs"></pre>
+    <p class="fine">These are unsigned. To use them you sign in your own wallet. Batch signing is new; check your wallet supports it, or send the actions one by one.</p>
+  </section>
+
+  <p class="fine">Reads two public servers (xrplcluster.com and s2.ripple.com) at the same validated ledger and only shows a plan when both agree. Rules follow the rippled source. Kairo Vault Technologies G.K. · independent verification.</p>
+</div>
+<script type="module" src="./app.js"></script>
+</body>
+</html>

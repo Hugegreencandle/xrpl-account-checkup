@@ -1,0 +1,38 @@
+{
+  "name": "xrpl-account-checkup",
+  "version": "0.1.0",
+  "description": "Read-only, keyless XRPL account checkup: finds XRP locked in removable ledger objects, flags who can act for the account, and builds unsigned cleanup transactions (Batch where possible).",
+  "type": "module",
+  "license": "MIT",
+  "bin": {
+    "xrpl-checkup": "bin/checkup.js"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "main": "src/index.js",
+  "exports": {
+    ".": "./src/index.js",
+    "./plan": "./src/plan.js",
+    "./scan": "./src/scan.js",
+    "./rpc": "./src/rpc.js"
+  },
+  "files": [
+    "src/",
+    "bin/",
+    "README.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "xrpl",
+    "xrp-ledger",
+    "reserve",
+    "trustline",
+    "batch",
+    "wallet",
+    "cleanup"
+  ]
+}
